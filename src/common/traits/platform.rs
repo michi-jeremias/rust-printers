@@ -1,5 +1,10 @@
+use crate::common::base::{
+    device_capabilities::DeviceCapabilities,
+    job::PrinterJobState,
+    printer::{Printer, PrinterState},
+    PrinterWithCapabilities,
+};
 use std::time::SystemTime;
-use crate::common::base::{job::PrinterJobState, printer::{Printer, PrinterState}};
 
 pub trait PlatformPrinterGetters {
     fn get_name(&self) -> String;
@@ -29,11 +34,29 @@ pub trait PlatformPrinterJobGetters {
 
 pub trait PlatformActions {
     fn get_printers() -> Vec<Printer>;
-    fn print(printer_system_name: &str, buffer: &[u8], job_name: Option<&str>) -> Result<(), &'static str>;    
-    fn print_file(printer_system_name: &str, file_path: &str, job_name: Option<&str>) -> Result<(), &'static str>;
-    fn get_printer_jobs(printer_name: &str, active_only: bool) -> Vec<crate::common::base::job::PrinterJob>;
+    fn print(
+        printer_system_name: &str,
+        buffer: &[u8],
+        job_name: Option<&str>,
+    ) -> Result<(), &'static str>;
+    fn print_file(
+        printer_system_name: &str,
+        file_path: &str,
+        job_name: Option<&str>,
+    ) -> Result<(), &'static str>;
+    fn get_printer_jobs(
+        printer_name: &str,
+        active_only: bool,
+    ) -> Vec<crate::common::base::job::PrinterJob>;
     fn get_default_printer() -> Option<Printer>;
     fn get_printer_by_name(printer_name: &str) -> Option<Printer>;
     fn parse_printer_state(platform_state: &str) -> PrinterState;
     fn parse_printer_job_state(platform_state: u64) -> PrinterJobState;
+    fn get_device_capabilities_by_name(printer_name: &str) -> Option<DeviceCapabilities>;
+    fn get_printers_with_capabilities() -> Vec<PrinterWithCapabilities>;
+}
+
+pub trait PlatformDeviceCapabilitiesGetters {
+    fn get_bin_count(&self) -> u64;
+    fn get_bin_names(&self) -> Vec<String>;
 }

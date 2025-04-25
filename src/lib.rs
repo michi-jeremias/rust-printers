@@ -43,7 +43,9 @@ mod unix;
 #[cfg(target_family = "windows")]
 mod windows;
 
-use common::{traits::platform::PlatformActions, base::printer::Printer};
+use common::{
+    base::printer::Printer, base::PrinterWithCapabilities, traits::platform::PlatformActions,
+};
 
 /**
  * Return all available printers on system
@@ -64,4 +66,11 @@ pub fn get_printer_by_name(printer_name: &str) -> Option<Printer> {
  */
 pub fn get_default_printer() -> Option<Printer> {
     return Platform::get_default_printer();
+}
+
+/**
+ * Return all available printers and their capabilities
+ */
+pub fn get_printers_with_capabilities() -> Vec<PrinterWithCapabilities> {
+    return Platform::get_printers_with_capabilities();
 }

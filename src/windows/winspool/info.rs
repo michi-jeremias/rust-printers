@@ -1,11 +1,17 @@
 #![allow(non_snake_case)]
 
-use libc::{c_int, c_uint, c_ulong, c_void, wchar_t};
+use libc::{c_int, c_uint, c_ulong, c_ushort, c_void, wchar_t};
 use std::{ptr, slice};
 
 use crate::{
-    common::traits::platform::PlatformPrinterGetters,
-    windows::utils::{memory::{alloc_s, dealloc_s}, strings::{str_to_wide_string, wchar_t_to_string}}
+    common::{
+        base::device_capabilities::DeviceCapabilities,
+        traits::platform::{PlatformDeviceCapabilitiesGetters, PlatformPrinterGetters},
+    },
+    windows::utils::{
+        memory::{alloc_s, dealloc_s},
+        strings::{str_to_wide_string, wchar_t_to_string},
+    },
 };
 
 #[link(name = "winspool")]
@@ -22,6 +28,14 @@ extern "system" {
     ) -> c_int;
 
     fn GetDefaultPrinterW(pszBuffer: *mut wchar_t, pcchBuffer: *mut c_ulong) -> c_int;
+
+    fn DeviceCapabilitiesW(
+        pDevice: *const wchar_t,
+        pPort: *const wchar_t,
+        fwCapability: c_ushort,
+        pOutput: *mut wchar_t,
+        pDevMode: *const c_void,
+    ) -> c_int;
 
 }
 
@@ -131,7 +145,6 @@ pub fn enum_printers(name: Option<&str>) -> &'static [PRINTER_INFO_2W] {
         }
 
         buffer_ptr = alloc_s::<PRINTER_INFO_2W>(bytes_needed);
-
     }
 
     return unsafe { slice::from_raw_parts(buffer_ptr, count_printers as usize) };
@@ -150,5 +163,88 @@ pub fn get_default_printer() -> Option<&'static PRINTER_INFO_2W> {
 pub fn free(printers: &'static [PRINTER_INFO_2W]) {
     if printers.len() > 0 {
         dealloc_s::<PRINTER_INFO_2W>(printers.as_ptr());
+    }
+}
+
+pub fn get_device_capabilities(printer: &PRINTER_INFO_2W) -> Option<DeviceCapabilities> {
+    const DC_BINS: c_ushort = 6;
+    const DC_BINNAMES: c_ushort = 12;
+
+    let printer_name = printer.pPrinterName;
+    let port_name = printer.pPortName;
+    let dev_mode = printer.pDevMode;
+
+    // Step 1: Get number of bins (DC_BINS)
+    let bin_count =
+        unsafe { DeviceCapabilitiesW(printer_name, port_name, DC_BINS, ptr::null_mut(), dev_mode) };
+
+    if bin_count == -1 {
+        return None; // Error or no bins
+    }
+
+    // Step 2: Allocate buffer for bin IDs
+    let bin_ids_size = bin_count as usize * std::mem::size_of::<c_ushort>();
+    let bin_ids_ptr = alloc_s::<c_ushort>(bin_ids_size as c_ulong);
+    let bin_count_result = unsafe {
+        DeviceCapabilitiesW(
+            printer_name,
+            port_name,
+            DC_BINS,
+            bin_ids_ptr as *mut wchar_t,
+            dev_mode,
+        )
+    };
+
+    if bin_count_result != bin_count {
+        dealloc_s::<c_ushort>(bin_ids_ptr);
+        return None;
+    }
+
+    // Step 3: Get bin names (DC_BINNAMES)
+    // Each bin name is 23 WCHARs (48 bytes)
+    let bin_name_size = 24 * std::mem::size_of::<wchar_t>();
+    let bin_names_buffer_size = bin_count as usize * bin_name_size;
+    let bin_names_ptr = alloc_s::<wchar_t>(bin_names_buffer_size as c_ulong);
+
+    let bin_names_result = unsafe {
+        DeviceCapabilitiesW(
+            printer_name,
+            port_name,
+            DC_BINNAMES,
+            bin_names_ptr,
+            dev_mode,
+        )
+    };
+
+    let mut bin_names = Vec::new();
+    if bin_names_result == bin_count {
+        for i in 0..bin_count as usize {
+            let offset = i * 24;
+            let name_slice = unsafe { slice::from_raw_parts(bin_names_ptr.add(offset), 24) };
+            let name = wchar_t_to_string(name_slice.as_ptr());
+            bin_names.push(name);
+        }
+    }
+
+    // Clean up
+    dealloc_s::<c_ushort>(bin_ids_ptr);
+    dealloc_s::<wchar_t>(bin_names_ptr);
+
+    Some(DeviceCapabilities {
+        bin_count: bin_count as u64,
+        bin_names,
+    })
+}
+
+impl PlatformDeviceCapabilitiesGetters for PRINTER_INFO_2W {
+    fn get_bin_count(&self) -> u64 {
+        get_device_capabilities(self)
+            .map(|capabilities| capabilities.bin_count)
+            .unwrap_or(0)
+    }
+    fn get_bin_names(&self) -> Vec<String> {
+        get_device_capabilities(self)
+            .map(|capabilities| capabilities.bin_names)
+            .unwrap_or_default()
     }
 }

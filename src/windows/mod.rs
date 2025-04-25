@@ -1,7 +1,9 @@
 use std::path::Path;
 
+use crate::common::base::device_capabilities::DeviceCapabilities;
 use crate::common::base::job::PrinterJobState;
 use crate::common::base::printer::PrinterState;
+use crate::common::base::PrinterWithCapabilities;
 use crate::common::base::{job::PrinterJob, printer::Printer};
 use crate::common::traits::platform::{PlatformActions, PlatformPrinterGetters};
 
@@ -37,7 +39,8 @@ impl PlatformActions for crate::Platform {
     ) -> Result<(), &'static str> {
         let buffer = utils::file::get_file_as_bytes(file_path);
         return if buffer.is_some() {
-            let job_name = job_name.unwrap_or(Path::new(file_path).file_name().unwrap().to_str().unwrap());
+            let job_name =
+                job_name.unwrap_or(Path::new(file_path).file_name().unwrap().to_str().unwrap());
             return Self::print(printer_system_name, &buffer.unwrap(), Some(job_name));
         } else {
             Err("failed to read file")
@@ -56,7 +59,7 @@ impl PlatformActions for crate::Platform {
                         || j.state == PrinterJobState::PAUSED
                 } else {
                     true
-                }
+                };
             })
             .collect();
     }
@@ -115,5 +118,33 @@ impl PlatformActions for crate::Platform {
         }
 
         return PrinterJobState::UNKNOWN;
+    }
+
+    fn get_device_capabilities_by_name(name: &str) -> Option<DeviceCapabilities> {
+        return winspool::info::enum_printers(None)
+            .into_iter()
+            .find(|p| p.get_name() == name || p.get_system_name() == name)
+            .map(|p| winspool::info::get_device_capabilities(p))?;
+    }
+
+    fn get_printers_with_capabilities() -> Vec<PrinterWithCapabilities> {
+        let data = winspool::info::enum_printers(None);
+
+        let printers: Vec<PrinterWithCapabilities> = data
+            .iter()
+            .filter(|p| !p.pPrinterName.is_null())
+            .map(|p| {
+                let printer = Printer::from_platform_printer_getters(p);
+                let device_capabilities =
+                    DeviceCapabilities::from_platform_device_capabilities_getters(p);
+                PrinterWithCapabilities {
+                    printer,
+                    device_capabilities,
+                }
+            })
+            .collect();
+
+        winspool::info::free(data);
+        return printers;
     }
 }
